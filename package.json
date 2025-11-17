@@ -2,24 +2,41 @@
   "name": "inventory_backend_folder",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "src/app.js",
   "type": "commonjs",
+  "bin": "src/app.js",
   "scripts": {
-    "db:init": "npx sequelize-cli init",
-    "db:make-models": "powershell -ExecutionPolicy Bypass -File ./scripts/generate-models.ps1",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "build:win": "pkg . --targets node18-win-x64 --output dist/local-printer-agent.exe",
+    "install:win": "npm install -g pkg",
+    "start:win": "node dist/local-printer-agent.exe",
+    "stop:win": "node-windows stop AnniecongLocalPrinterAgent",
+    "uninstall:win": "node-windows uninstall AnniecongLocalPrinterAgent",
+    "restart:win": "node-windows restart AnniecongLocalPrinterAgent",
+    "status:win": "node-windows status AnniecongLocalPrinterAgent",
+    "logs:win": "node-windows log AnniecongLocalPrinterAgent",
     "start": "nodemon src/app.js"
+  },
+  "pkg": {
+    "scripts": [
+      "src/app.js"
+    ],
+    "assets": []
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
     "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "multer": "^2.0.2",
     "mysql2": "^3.15.2",
+    "node-windows": "^1.0.0-beta.8",
     "nodemon": "^3.1.10",
     "sequelize": "^6.37.7",
     "sequelize-cli": "^6.6.3"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.0"
   }
 }
