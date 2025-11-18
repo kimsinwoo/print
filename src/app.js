@@ -9,18 +9,18 @@ const os = require("os");
 const app = express();
 const PORT = 4310;
 
-const SUMATRA_PATH =
-  "C:\\Users\\khcst\\local-printer-agent\\API-inventory-backend\\bin\\SumatraPDF.exe";
+const isPkg = typeof process.pkg !== "undefined";
 
-// ✅ JSON body 파싱 (PDF base64 때문에 용량 여유 있게)
+const baseDir = isPkg ? path.dirname(process.execPath) : __dirname;
+
+const SUMATRA_PATH = path.join(baseDir, "SumatraPDF.exe");
 app.use(express.json({ limit: "50mb" }));
 
-// CORS 설정 – 배포 도메인/로컬 개발 도메인 허용
 app.use(
   cors({
     origin: [
-      "https://anniecong.o-r.kr", // 실제 배포 프론트
-      "http://localhost:5173", // Vite 개발 서버
+      "https://anniecong.o-r.kr", 
+      "http://localhost:5173", 
       "http://localhost:3000",
       "https://anniecong.o-r.kr/api",
       "https://223.130.143.87:4000",
@@ -29,28 +29,20 @@ app.use(
   })
 );
 
-// =============================
-// 헬스 체크
-// =============================
 app.get("/health", (req, res) => {
   res.json({ ok: true, message: "Local printer agent is running" });
 });
 
-// =============================
-// 프린터 목록 캐시 (속도 개선)
-// =============================
 let printerCache = {
   data: [],
   fetchedAt: 0,
 };
-const PRINTER_CACHE_TTL = 10 * 1000; // 10초 동안 캐시 유지
+const PRINTER_CACHE_TTL = 10 * 1000; 
 
-// 프린터 목록 조회
 app.get("/printers", (req, res) => {
   const now = Date.now();
   const age = now - printerCache.fetchedAt;
 
-  // 캐시 유효하면 바로 응답
   if (printerCache.data.length > 0 && age < PRINTER_CACHE_TTL) {
     return res.status(200).json({
       ok: true,
@@ -127,14 +119,11 @@ app.get("/printers", (req, res) => {
   );
 });
 
-// =============================
-// 프린트 작업 상태 관리 (GUI에서 보기용)
-// =============================
 let lastPrintJob = {
   id: null,
   printerName: null,
   copies: 0,
-  status: "idle", // idle | queued | printing | success | error
+  status: "idle", 
   message: "",
   error: null,
   startedAt: null,
@@ -142,7 +131,6 @@ let lastPrintJob = {
 };
 let jobCounter = 0;
 
-// 프린트 상태 조회 (GUI에서 polling)
 app.get("/print-status", (req, res) => {
   res.json({
     ok: true,
@@ -150,12 +138,6 @@ app.get("/print-status", (req, res) => {
   });
 });
 
-/**
- * ✅ PDF(base64)를 받아서 실제로 프린트하는 엔드포인트
- * body: { pdfBase64: string | number[] | {type:'Buffer', data:number[]}, printerName: string, printCount?: number }
- *
- * 🔥 요청/응답 스펙은 기존과 동일하게 유지
- */
 app.post("/print", (req, res) => {
   console.log("=== /print 라벨 프린트 요청 수신 ===");
   console.log("요청 바디:", req.body);
@@ -180,7 +162,6 @@ app.post("/print", (req, res) => {
   const copies =
     Number.isFinite(copiesRaw) && copiesRaw > 0 ? Math.floor(copiesRaw) : 1;
 
-  // ✅ 프린트 작업 상태 업데이트 (요청 접수)
   const jobId = ++jobCounter;
   lastPrintJob = {
     id: jobId,
@@ -193,11 +174,9 @@ app.post("/print", (req, res) => {
     finishedAt: null,
   };
 
-  console.log("✅ 프린트 요청 정상 접수");
   console.log("- 프린터:", printerName);
   console.log("- 매수:", copies);
 
-  // ✅ Sumatra 경로 체크
   if (!fs.existsSync(SUMATRA_PATH)) {
     console.error("❌ SUMATRA_PATH 위치에 실행 파일이 없습니다:", SUMATRA_PATH);
     lastPrintJob.status = "error";
@@ -282,7 +261,6 @@ app.post("/print", (req, res) => {
     fs.writeFileSync(filePath, pdfBuffer);
     console.log("📄 PDF 저장 완료:", filePath);
 
-    // ✅ 상태: 프린트 시작
     lastPrintJob.status = "printing";
     lastPrintJob.message = "프린트를 시작합니다.";
 
@@ -322,7 +300,6 @@ app.post("/print", (req, res) => {
       lastPrintJob.error = null;
       lastPrintJob.finishedAt = new Date().toISOString();
 
-      // 🔥 응답 스펙은 기존과 동일 구조 유지
       return res.json({
         ok: true,
         message: successMsg,
@@ -347,9 +324,6 @@ app.post("/print", (req, res) => {
   }
 });
 
-// =============================
-// 아주 간단한 GUI 페이지 (/ui)
-// =============================
 const UI_HTML = `
 <!doctype html>
 <html lang="ko">
@@ -510,7 +484,6 @@ const UI_HTML = `
   <div class="subtitle">이 창은 exe 에이전트 상태를 보여주는 미니 대시보드입니다.</div>
 
   <div class="grid">
-    <!-- 프린터 목록 -->
     <div class="card">
       <div class="row">
         <div>
@@ -526,7 +499,6 @@ const UI_HTML = `
       </div>
     </div>
 
-    <!-- 프린트 상태 -->
     <div class="card">
       <div class="row">
         <div>
@@ -693,11 +665,9 @@ const UI_HTML = `
       setToast("프린트 상태를 수동으로 새로고침했습니다.");
     });
 
-    // 초기 로드
     window.addEventListener("load", function () {
       loadPrinters();
       loadStatus();
-      // 상태는 1초마다 polling
       setInterval(loadStatus, 1000);
     });
   </script>
@@ -713,7 +683,6 @@ app.get("/ui", (req, res) => {
 app.listen(PORT, () => {
   console.log(`✅ Local printer agent listening on http://localhost:${PORT}`);
 
-  // exe 실행 시 기본 브라우저로 GUI 자동 오픈 (Windows 전용)
   const url = `http://localhost:${PORT}/ui`;
   try {
     exec(`start "" "${url}"`, { windowsHide: true });
