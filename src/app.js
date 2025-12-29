@@ -24,6 +24,7 @@ app.use(
       "http://localhost:3000",
       "https://anniecong.o-r.kr/api",
       "https://223.130.143.87:4000",
+      "http://13.219.181.99:3000",
     ],
     methods: ["GET", "POST", "OPTIONS"],
   })
