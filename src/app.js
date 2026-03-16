@@ -325,6 +325,115 @@ app.post("/print", (req, res) => {
   }
 });
 
+
+function executePrintJob(printerName, copies, pdfBase64) {
+  return new Promise((resolve, reject) => {
+    let pdfBuffer;
+    try {
+      if (typeof pdfBase64 === "string") {
+        const trimmed = pdfBase64.trim();
+        const looksLikeCsv = /^[0-9]+(,[0-9]+)*$/.test(trimmed);
+        if (looksLikeCsv) {
+          pdfBuffer = Buffer.from(trimmed.split(",").map((n) => Number(n)));
+        } else {
+          pdfBuffer = Buffer.from(trimmed, "base64");
+        }
+      } else if (Array.isArray(pdfBase64)) {
+        pdfBuffer = Buffer.from(pdfBase64.map((n) => Number(n)));
+      } else if (typeof pdfBase64 === "object" && pdfBase64 !== null && pdfBase64.type === "Buffer" && Array.isArray(pdfBase64.data)) {
+        pdfBuffer = Buffer.from(pdfBase64.data.map((n) => Number(n)));
+      } else {
+        return reject(new Error("지원하지 않는 pdfBase64 형식입니다."));
+      }
+    } catch (e) {
+      return reject(e);
+    }
+
+    if (!Buffer.isBuffer(pdfBuffer) || pdfBuffer.length === 0) {
+      return reject(new Error("PDF 버퍼가 비어있거나 형식이 올바르지 않습니다."));
+    }
+
+    const tempDir = path.join(os.tmpdir(), "anniecong-labels");
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+    const filePath = path.join(tempDir, `label-${Date.now()}.pdf`);
+    fs.writeFileSync(filePath, pdfBuffer);
+
+    const command = `"${SUMATRA_PATH}" -print-to "${printerName}" -print-settings "copies=${copies}" -silent "${filePath}"`;
+    exec(command, { windowsHide: true }, (error) => {
+      if (error) return reject(error);
+      resolve({ filePath, copies, printerName });
+    });
+  });
+}
+
+app.post("/print-batch", async (req, res) => {
+  console.log("=== /print-batch 다중 프린트 요청 수신 ===");
+
+  const jobs = req.body;
+
+  if (!Array.isArray(jobs) || jobs.length === 0) {
+    return res.status(400).json({ ok: false, message: "배열 형식의 프린트 작업 목록이 필요합니다." });
+  }
+
+  for (let i = 0; i < jobs.length; i++) {
+    const { printerName, pdfBase64 } = jobs[i];
+    if (typeof printerName !== "string" || printerName.trim().length === 0) {
+      return res.status(400).json({ ok: false, message: `${i + 1}번째 작업에 printerName이 없습니다.` });
+    }
+    if (typeof pdfBase64 === "undefined" || pdfBase64 === null) {
+      return res.status(400).json({ ok: false, message: `${i + 1}번째 작업에 pdfBase64가 없습니다.` });
+    }
+  }
+
+  if (!fs.existsSync(SUMATRA_PATH)) {
+    return res.status(500).json({ ok: false, message: `SumatraPDF 실행 파일을 찾을 수 없습니다. 경로: ${SUMATRA_PATH}` });
+  }
+
+  // 즉시 응답
+  res.json({
+    ok: true,
+    message: `프린트 요청이 완료되었습니다. 총 ${jobs.length}개 작업을 순차 처리합니다.`,
+    totalJobs: jobs.length,
+  });
+
+  // 백그라운드 순차 처리
+  (async () => {
+    for (let i = 0; i < jobs.length; i++) {
+      const { printerName, pdfBase64, printCount = 1 } = jobs[i];
+      const copies = Number.isFinite(Number(printCount)) && Number(printCount) > 0 ? Math.floor(Number(printCount)) : 1;
+
+      console.log(`[batch ${i + 1}/${jobs.length}] 프린터: ${printerName}, 매수: ${copies}`);
+      lastPrintJob = {
+        id: ++jobCounter,
+        printerName,
+        copies,
+        status: "printing",
+        message: `배치 ${i + 1}/${jobs.length} 프린트 중...`,
+        error: null,
+        startedAt: new Date().toISOString(),
+        finishedAt: null,
+      };
+
+      try {
+        await executePrintJob(printerName, copies, pdfBase64);
+        lastPrintJob.status = "success";
+        lastPrintJob.message = `배치 ${i + 1}/${jobs.length} 완료 (${copies}장)`;
+        lastPrintJob.finishedAt = new Date().toISOString();
+        console.log(`[batch ${i + 1}/${jobs.length}] 완료`);
+      } catch (e) {
+        lastPrintJob.status = "error";
+        lastPrintJob.message = `배치 ${i + 1}/${jobs.length} 오류 발생`;
+        lastPrintJob.error = e.message;
+        lastPrintJob.finishedAt = new Date().toISOString();
+        console.error(`[batch ${i + 1}/${jobs.length}] 오류:`, e.message);
+      }
+    }
+    console.log("=== 배치 프린트 전체 완료 ===");
+  })();
+});
+
+
 const UI_HTML = `
 <!doctype html>
 <html lang="ko">
